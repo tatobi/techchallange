@@ -36,22 +36,31 @@ To improve security, the next step would be register S3 domain and offload HTTPS
 - using aws cli tool to create stack (default input parameter is the servian's Docker image):
 
 ```
-aws cloudformation create-stack --stack-name "techchallange-01" --template-body file://./cloudformation/techchallange.yaml --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+aws cloudformation create-stack \
+    --stack-name "techchallange-01" \
+    --template-body file://./cloudformation/techchallange.yaml \
+    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
 ```
 
 - check stack status:
 
 ```
-aws cloudformation describe-stack-events --stack-name techchallange-01 --output table
+aws cloudformation describe-stack-events \
+    --stack-name techchallange-01 \
+    --output table
 
-aws cloudformation describe-stacks --stack-name techchallange-01 --output table | grep StackStatus
+aws cloudformation describe-stacks \
+    --stack-name techchallange-01 \
+    --output table | grep StackStatus
 
 ```
 
 - get output URL of stack:
 
 ```
-aws cloudformation describe-stacks --stack-name techchallange-01 --output table | grep OutputValue
+aws cloudformation describe-stacks \
+    --stack-name techchallange-01 \
+    --output table | grep OutputValue
 
 ```
 __NOTE__: please to wait a few secs to see the data on the URL because the Serverless Aurora cold-start needs warmup. This parameter can be changed.
