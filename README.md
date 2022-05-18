@@ -2,7 +2,7 @@
 
 ## Deployed solution (running on my AWS stack for a few days)
 
-(will be switched off soon, please wait 20-25secs to see the data, because of serverless Aurora)
+(will be switched off soon, please wait 20-25secs to see the data, because of serverless Aurora warmup)
 
 http://techc-loadb-ab6i68w9vbng-1211233752.eu-west-1.elb.amazonaws.com/
 
@@ -54,7 +54,7 @@ aws cloudformation describe-stacks --stack-name techchallange-01 --output table 
 aws cloudformation describe-stacks --stack-name techchallange-01 --output table | grep OutputValue
 
 ```
-__NOTE__: please to wait a few secs to see the data on the URL because the Serverless Aurora cold-start needs time. This parameter can be changed.
+__NOTE__: please to wait a few secs to see the data on the URL because the Serverless Aurora cold-start needs warmup. This parameter can be changed.
 
 
 - delete stack:
