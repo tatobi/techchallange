@@ -1,0 +1,666 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 
+  DevOps Technical Challange solution,
+  Highly available multiAZ deployment,
+  create VPC, subnets, routes,
+  cost effective / Serverless Postgres RDS Aurora,
+  autoscaling by AWS ECS Container orchestration,
+  Copyright Tamas Tobi / GitHUB @tatobi, tamas@tobi.hu - 2022
+
+########################################################
+# Input params
+########################################################
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Deploy Servian Tech Challange to AWS
+      Parameters:
+      - serviandockerimage
+
+    ParameterLabels:
+      serviandockerimage:
+        default: Public Docker HUB Servian Docker Image URI
+
+Parameters:
+  serviandockerimage:
+    Description: The Servian Docker Image path and tag
+    Type: String
+    Default: 'servian/techchallengeapp:latest'
+
+
+########################################################
+# Networking: create VPC, multiAZ, private/public subnets
+########################################################
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.240.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} VPC"
+      - Key: KubernetesCluster
+        Value: !Ref AWS::StackName
+
+  PublicSubnet01:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.240.96.0/19
+      AvailabilityZone: !Select 
+        - '0'
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} publicsubnet01"
+
+  PublicSubnet02:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      CidrBlock: 10.240.128.0/19
+      AvailabilityZone: !Select 
+        - '1'
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} publicsubnet02"
+
+  PrivateSubnet01:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.240.160.0/19
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select 
+        - '0'
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} privatesubnet01"
+          
+  PrivateSubnet02:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.240.192.0/19
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select 
+        - '1'
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} privatesubnet02"
+
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} InternetGateway"
+  
+  GatewayToVPCAssociation:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} PublicRouteTable"
+      - Key: KubernetesCluster
+        Value: !Ref AWS::StackName
+    
+  PublicRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  PublicSubnetRouteTableAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet01
+      RouteTableId: !Ref PublicRouteTable
+  
+  PublicSubnetRouteTableAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet02
+      RouteTableId: !Ref PublicRouteTable
+      
+  PrivateRouteTable1:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} PrivateRouteTable1"
+    
+  PrivateRouteTable2:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName} PrivateRouteTable2"
+
+  PrivateSubnetRouteTableAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnet01
+      RouteTableId: !Ref PrivateRouteTable1
+  
+  PrivateSubnetRouteTableAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnet02
+      RouteTableId: !Ref PrivateRouteTable2
+
+
+########################################################
+# Security Groups, private-public separation
+########################################################
+
+  PostgresSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.240.0.0/16
+      VpcId: !Ref VPC
+      GroupDescription: Postgresql Aurora Security Group
+      GroupName : !Sub "${AWS::StackName} PostgresSecurityGroup"
+
+  AppSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Sub "${AWS::StackName} AppSecurityGroup"
+      VpcId: !Ref VPC
+
+      
+  AppSecurityGroupinbound:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !Ref AppSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      CidrIp: 0.0.0.0/0
+
+  LoadBalancerSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Load balancer only allow http
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        CidrIp: 0.0.0.0/0
+        FromPort: 80
+        IpProtocol: TCP
+        ToPort: 80
+
+########################################################
+# Secret manager for DB password
+########################################################
+
+  DBSecrets:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Description: AWS RDS admin credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "serviandbuser"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+
+
+########################################################
+# Serverless Postgres Aurora
+########################################################
+
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: !Sub "${AWS::StackName} DBSubnetGroup"
+      SubnetIds: 
+        - !Ref PrivateSubnet01
+        - !Ref PrivateSubnet02
+
+  AuroraServerlessPostgres:
+    Type: 'AWS::RDS::DBCluster'
+    Properties:
+      DBClusterIdentifier: !Sub "${AWS::StackName}-db"
+      DatabaseName: servian
+      Engine: aurora-postgresql
+      EngineMode: serverless
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DBSecrets}::username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecrets}::password}}'
+      ScalingConfiguration:
+        AutoPause: true
+        MaxCapacity: 4
+        MinCapacity: 2
+        SecondsUntilAutoPause: 300
+      StorageEncrypted: true
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref PostgresSecurityGroup
+
+########################################################
+# Logging
+########################################################
+
+  CloudwatchLogsGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: "servian-loggroup"
+      RetentionInDays: 7
+
+
+########################################################
+# IAM roles for services
+########################################################
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-cluster-exec-role"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  ECSServiceAutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [application-autoscaling.amazonaws.com]
+          Action: ["sts:AssumeRole"]
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole'
+        
+  DefaultECSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: DefaultECSServiceRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - ecs.amazonaws.com
+
+  LambdaFunctionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - ecs:RunTask
+            - ecs:StartTask
+            - ecs:StopTask
+            Resource: "*"
+          - Action:
+            - iam:PassRole
+            Resource: "*"
+            Effect: Allow
+
+########################################################
+# AWS ECS cluster and task definitions
+########################################################
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: "servian-cluster"
+      CapacityProviders:
+        - FARGATE
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+
+  InitDBECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn:
+      - AuroraServerlessPostgres
+      - Cluster
+      - PublicSubnet01
+      - PublicSubnet02
+    Properties:
+      Family: init-db-task
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !Ref ExecutionRole
+      ContainerDefinitions:
+        - Name: deployment-init-db
+          Image: !Ref serviandockerimage
+          Command:
+            - updatedb
+            - -s
+          Environment:
+          - Name: VTT_DBUSER
+            Value: !Sub '{{resolve:secretsmanager:${DBSecrets}::username}}'
+          - Name: VTT_DBPASSWORD
+            Value: !Sub '{{resolve:secretsmanager:${DBSecrets}::password}}'
+          - Name: VTT_DBNAME
+            Value: 'servian'
+          - Name: VTT_DBPORT
+            Value: '5432'
+          - Name: VTT_DBHOST
+            Value: !GetAtt AuroraServerlessPostgres.Endpoint.Address
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref CloudwatchLogsGroup
+              awslogs-stream-prefix: ecs
+      RequiresCompatibilities:
+        - EC2
+        - FARGATE
+
+  RunAppECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn:
+      - AuroraServerlessPostgres
+      - Cluster
+      - PublicSubnet01
+      - PublicSubnet02
+    Properties:
+      Family: service-task
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !Ref ExecutionRole
+      ContainerDefinitions:
+        - Name: ServiceContainer
+          PortMappings:
+            - ContainerPort: 3000
+          Image: !Ref serviandockerimage
+          Command:
+            - serve
+          Environment:
+          - Name: VTT_DBUSER
+            Value: !Sub '{{resolve:secretsmanager:${DBSecrets}::username}}'
+          - Name: VTT_DBPASSWORD
+            Value: !Sub '{{resolve:secretsmanager:${DBSecrets}::password}}'
+          - Name: VTT_DBNAME
+            Value: 'servian'
+          - Name: VTT_DBPORT
+            Value: '5432'
+          - Name: VTT_DBHOST
+            Value: !GetAtt AuroraServerlessPostgres.Endpoint.Address
+          - Name: VTT_LISTENHOST
+            Value: '0.0.0.0'
+          - Name: VTT_LISTENPORT
+            Value: '3000'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref CloudwatchLogsGroup
+              awslogs-stream-prefix: ecs
+      RequiresCompatibilities:
+        - EC2
+        - FARGATE
+
+########################################################
+# AWS Lambda for init-db one-time ECS task running
+########################################################
+
+  LambdaInitDbFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - InitDBECSTaskDefinition
+      - LambdaFunctionRole
+      - Cluster
+      - PublicSubnet01
+      - PublicSubnet02
+    Properties:
+      Code:
+        ZipFile: !Sub |
+            import boto3
+            import os
+            import cfnresponse
+            
+            client = boto3.client('ecs')
+            
+            cluster_name = "servian-cluster"
+            task_definition = "init-db-task"
+            subnet01 = os.getenv('SUBNET01','')
+            subnet02 = os.getenv('SUBNET02','')
+            
+            def initdb():
+                try:
+                    response = client.run_task(
+                        cluster=cluster_name,
+                        launchType = 'FARGATE',
+                        taskDefinition=task_definition,
+                        count = 1,
+                        platformVersion='LATEST',
+                        networkConfiguration={
+                            'awsvpcConfiguration': {
+                                'subnets': [
+                                    subnet01,
+                                    subnet02
+                                ],
+                                'assignPublicIp': 'ENABLED'
+                            }
+                        })
+                    print(response)
+                    return "OK"
+                except Exception as e:
+                    print(e)
+                    return str(e)
+            
+            def handler(event, context):
+                if event['RequestType'] == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+                try:
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, { 'Id': initdb() })
+                  return
+                except Exception as e:
+                  print(e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, { 'Error': format(e) })
+                  return
+              
+      Handler: "index.handler"
+      Runtime: "python3.9"
+      Timeout: "60"
+      Role: !GetAtt LambdaFunctionRole.Arn
+      Environment:
+        Variables:
+          SUBNET01: !Ref PublicSubnet01
+          SUBNET02: !Ref PublicSubnet02
+
+########################################################
+# Elastic Loadbalancer for HTTP ECS service
+########################################################
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      SecurityGroups:
+        - !Ref LoadBalancerSecGroup
+      Subnets:
+        - !Ref PublicSubnet01
+        - !Ref PublicSubnet02
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 3000
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      HealthCheckIntervalSeconds: 60
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthCheckPath: /
+      TargetType: ip
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 2
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - '*'
+      ListenerArn: !Ref LoadBalancerListener
+      Priority: 1
+
+########################################################
+# Custom function to invoke init-db Lambda
+########################################################
+
+  LambdaInvoke:
+    DependsOn:
+      - LambdaInitDbFunction
+      - TargetGroup
+      - LoadBalancer
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: LambdaInitDbFunction
+    Version: "1.0"
+    Properties:
+      ServiceToken: !GetAtt LambdaInitDbFunction.Arn
+
+
+########################################################
+# HTTP ECS service using Fargate
+########################################################
+  AppService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - LambdaInvoke
+    Properties:
+      ServiceName: servian-service
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref RunAppECSTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: ServiceContainer
+          ContainerPort: 3000
+          TargetGroupArn: !Ref TargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PublicSubnet01
+            - !Ref PublicSubnet02
+          SecurityGroups:
+            - !GetAtt AppSecurityGroup.GroupId
+
+########################################################
+# ECS cluster AutoScaling by CPU
+########################################################
+
+  ECSServiceAutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [application-autoscaling.amazonaws.com]
+          Action: ["sts:AssumeRole"]
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole'
+        
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn:
+      - AppService
+    Properties:
+      MaxCapacity: 3
+      MinCapacity: 1
+      ResourceId: !Join ["/", [service, !Ref Cluster, !GetAtt AppService.Name]]
+      RoleARN: !GetAtt ECSServiceAutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      
+  AutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ServiceAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10
+        TargetValue: 65
+
+
+########################################################
+# Output of LoadBalancer HTTP URL to App
+########################################################
+
+Outputs:
+  AppAccessURL:
+    Description: Servian App Access URL
+    Value: !GetAtt LoadBalancer.DNSName
