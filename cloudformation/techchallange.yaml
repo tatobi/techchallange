@@ -201,7 +201,7 @@ Resources:
       IpProtocol: tcp
       FromPort: 3000
       ToPort: 3000
-      CidrIp: 0.0.0.0/0
+      CidrIp: 10.240.0.0/16
 
   LoadBalancerSecGroup:
     Type: AWS::EC2::SecurityGroup
