@@ -2,7 +2,7 @@
 
 ## Deployed solution (running on my AWS stack for a few days)
 
-(will be switched off soon, please wait 20-25secs to see the data, because of serverless Aurora warmup)
+(will be switched off soon, please wait / reload page in 20-25secs to see the data, because of serverless Aurora warmup)
 
 http://techc-loadb-ab6i68w9vbng-1211233752.eu-west-1.elb.amazonaws.com/
 
@@ -13,7 +13,7 @@ A serverless AWS Aurora PostgreSQL cluster has deployed with AutoScaling capabil
 An AWS ECS cluster deployed to public multi-AZ subnets with serverless FARGATE task to create the initial database schema to PostgreSQL, this invoked by an AWS Lambda function.
 Finally, an AutoScaled  ECS serverless FARGATE service deployed behind a V2 LoadBalancer to the ECS cluster running the Docker image URI given as the stack parameter. 
 The above cost-effective and highly available solution does not use VMs and very flexible to scale. 
-To improve security, the next step would be register S3 domain and offload HTTPS trffic with V2 LoadBalancer in front of the app service.
+To improve security, the next step would be register S3 domain and offload HTTPS trffic with V2 LoadBalancer in front of the app service. The ECS tasks are deployed to public subnet to be able to get the public Docker image, from security viewpoint it would be a slight security enhancement to deploy them to private and adding a NAT gateway. 
 
 [![N|Solid](https://raw.githubusercontent.com/tatobi/techchallange/master/docs/techchallange.png)](https://raw.githubusercontent.com/tatobi/techchallange/master/docs/techchallange.png)
 
@@ -63,7 +63,7 @@ aws cloudformation describe-stacks \
     --output table | grep OutputValue
 
 ```
-__NOTE__: please to wait a few secs to see the data on the URL because the Serverless Aurora cold-start needs warmup. This parameter can be changed.
+__NOTE__: please to wait / reload page to see the data on the URL because the Serverless Aurora cold-start needs warmup. This parameter can be changed.
 
 
 - delete stack:
