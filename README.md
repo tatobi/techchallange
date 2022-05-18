@@ -2,7 +2,7 @@
 
 ## Deployed solution (running on my AWS stack for a few days)
 
-(will be switched off soon)
+(will be switched off soon, please wait 20-25secs to see the data, because of serverless Aurora)
 
 http://techc-loadb-ab6i68w9vbng-1211233752.eu-west-1.elb.amazonaws.com/
 
