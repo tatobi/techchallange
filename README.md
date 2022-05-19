@@ -72,7 +72,11 @@ __NOTE__: please to wait / reload page to see the data on the URL because the Se
 aws cloudformation delete-stack --stack-name techchallange-01
 ```
 
+## Note
 
+The application should be fixed to be able to use the serverless behaviour of the Postgres Aurore by handling the warmup at the first requests. It could be implement a random Backoff retry (frontend and/or backend?) in case of the server is in paused state for 1 min. This funcinality could help to decrese cost and keep paused the database as much as possible consume less power and more envirinment friendly.
+
+Another way would be make the Docker image / app AWS Lambda compatible which could also help to reduce cost/environment footprint by eliminating the ECS FARGATE - always running 1 container - to 0. 
 
 
 
